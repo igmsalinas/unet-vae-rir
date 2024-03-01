@@ -19,9 +19,7 @@ import tensorflow as tf
 from tensorflow.keras.utils import Progbar
 
 """
-Ignacio Martín 2022
-
-Code corresponding to the Bachelor Thesis "Synthesis of Room Impulse Responses by Means of Deep Learning"
+Ignacio Martín 2024
 
 Authors:
     Ignacio Martín
@@ -45,6 +43,26 @@ def phase_loss(y_true, y_pred):
     return loss
 
 
+def sdr(pred, true):
+    pred = np.array(pred)
+    true = np.array(true)
+
+    pred = pred - np.mean(pred)
+    true = true - np.mean(true)
+
+    origin_power = np.sum(true ** 2, keepdims=True) + 1e-8  # (batch, 1)
+
+    scale = np.sum(true * pred, keepdims=True) / origin_power  # (batch, 1)
+
+    est_true = scale * true
+    est_res = pred - est_true
+
+    true_power = np.sum(est_true ** 2)
+    res_power = np.sum(est_res ** 2)
+
+    return 10 * np.log10(true_power) - 10 * np.log10(res_power)  # (batch, 1)
+
+
 if __name__ == '__main__':
 
     batch_size = 16
@@ -57,19 +75,19 @@ if __name__ == '__main__':
     modifier = "-64-mae-diff"
 
     mode = 3
-    latent_space_dim = 64 
+    latent_space_dim = 64
 
-    normalize_vector = True 
+    normalize_vector = True
 
     rooms = None
     arrays = ["PlanarMicrophoneArray"]
     zones = None
 
-    algorithms = ['gl_ph', 'gl_mag', 'ph']   # ['gl_ph', 'gl_mag', 'ph']
+    algorithms = ['gl_ph', 'gl_mag', 'ph']  # ['gl_ph', 'gl_mag', 'ph']
     n_iters = 64
     momentum = 0.99
 
-    diff_gen = True 
+    diff_gen = True
 
     models_folder = '../results/'
     saving_path = '../generated_rir_distributed/' + model_name + modifier
@@ -102,7 +120,7 @@ if __name__ == '__main__':
                                 mode=mode,
                                 number_filters_0=32,
                                 kernels=3,
-                                latent_space_dim=latent_space_dim/2,
+                                latent_space_dim=latent_space_dim / 2,
                                 name=model_name + modifier
                                 )
 
@@ -172,13 +190,14 @@ if __name__ == '__main__':
 
     for algorithm in algorithms:
 
-        postprocessor = PostProcess(folder=saving_path + "/" + model_name + modifier, algorithm=algorithm, momentum=momentum, n_iters=n_iters)
+        postprocessor = PostProcess(folder=saving_path + "/" + model_name + modifier, algorithm=algorithm,
+                                    momentum=momentum, n_iters=n_iters)
 
         time.sleep(1)
         print(f'Generating wavs and obtaining loss | {algorithm}')
         numUpdates = test_generator.__len__()
         time_inference, time_postprocessing, time_loss = [], [], []
-        total_loss, amp_loss, pha_loss, wav_loss, wav_loss_50ms, missa_amp_loss, missa_wav_loss = [], [], [], [], [], [], []
+        total_loss, amp_loss, pha_loss, wav_loss, wav_loss_50ms, missa_amp_loss, missa_wav_loss, sdr_metric = [], [], [], [], [], [], [], []
 
         hemi_total_loss, large_total_loss, medium_total_loss, shoe_total_loss, small_total_loss = [], [], [], [], []
         hemi_amp_loss, large_amp_loss, medium_amp_loss, shoe_amp_loss, small_amp_loss = [], [], [], [], []
@@ -187,6 +206,7 @@ if __name__ == '__main__':
         hemi_wav_loss_50ms, large_wav_loss_50ms, medium_wav_loss_50ms, shoe_wav_loss_50ms, small_wav_loss_50ms = [], [], [], [], []
         hemi_missa_amp_loss, large_missa_amp_loss, medium_missa_amp_loss, shoe_missa_amp_loss, small_missa_amp_loss = [], [], [], [], []
         hemi_missa_wav_loss, large_missa_wav_loss, medium_missa_wav_loss, shoe_missa_wav_loss, small_missa_wav_loss = [], [], [], [], []
+        hemi_sdr_metric, large_sdr_metric, medium_sdr_metric, shoe_sdr_metric, small_sdr_metric = [], [], [], [], []
 
         hemi_count, large_count, medium_count, shoe_count, small_count = 0, 0, 0, 0, 0
 
@@ -267,6 +287,9 @@ if __name__ == '__main__':
 
                 missa_wav_loss.append(loss_missa_wav)
 
+                sdr_metric_wav = sdr(wav_pred, wav_true)
+                sdr_metric.append(sdr_metric_wav)
+
                 if characteristic_out[0] == 'HemiAnechoicRoom':
                     hemi_count += 1
 
@@ -279,6 +302,8 @@ if __name__ == '__main__':
 
                     hemi_missa_amp_loss.append(loss_missa_amp)
                     hemi_missa_wav_loss.append(loss_missa_wav)
+
+                    hemi_sdr_metric.append(sdr_metric_wav)
 
                 if characteristic_out[0] == 'LargeMeetingRoom':
                     large_count += 1
@@ -293,6 +318,8 @@ if __name__ == '__main__':
                     large_missa_amp_loss.append(loss_missa_amp)
                     large_missa_wav_loss.append(loss_missa_wav)
 
+                    large_sdr_metric.append(sdr_metric_wav)
+
                 if characteristic_out[0] == 'MediumMeetingRoom':
                     medium_count += 1
 
@@ -305,6 +332,8 @@ if __name__ == '__main__':
 
                     medium_missa_amp_loss.append(loss_missa_amp)
                     medium_missa_wav_loss.append(loss_missa_wav)
+
+                    medium_sdr_metric.append(sdr_metric_wav)
 
                 if characteristic_out[0] == 'ShoeBoxRoom':
                     shoe_count += 1
@@ -319,6 +348,8 @@ if __name__ == '__main__':
                     shoe_missa_amp_loss.append(loss_missa_amp)
                     shoe_missa_wav_loss.append(loss_missa_wav)
 
+                    shoe_sdr_metric.append(sdr_metric_wav)
+
                 if characteristic_out[0] == 'SmallMeetingRoom':
                     small_count += 1
 
@@ -332,6 +363,8 @@ if __name__ == '__main__':
                     small_missa_amp_loss.append(loss_missa_amp)
                     small_missa_wav_loss.append(loss_missa_wav)
 
+                    shoe_sdr_metric.append(sdr_metric_wav)
+
                 end_loss = time.time()
                 time_loss.append(end_loss - start_loss)
 
@@ -340,7 +373,8 @@ if __name__ == '__main__':
                     create_directory_if_none(f'{saving_path}/{model_name + modifier}_{algorithm}/png/')
                     plot_feature_vs_wav(stft_pred, wav_pred, model_name + modifier, characteristic_out,
                                         f'{saving_path}/{model_name + modifier}_{algorithm}/png/spec_vs_wav_{plot_count}.png')
-                    plot_feature_vs_feature_wav(wav_true, stft_true, stft_pred, model_name + modifier, characteristic_out,
+                    plot_feature_vs_feature_wav(wav_true, stft_true, stft_pred, model_name + modifier,
+                                                characteristic_out,
                                                 f'{saving_path}/{model_name + modifier}_{algorithm}/png/spec_vs_spec_{plot_count}.png')
                     plot_phase_vs_phase(phase_true, phase_pred, model_name + modifier, characteristic_out,
                                         f'{saving_path}/{model_name + modifier}_{algorithm}/png/phase_vs_phase_{plot_count}.png')
@@ -363,6 +397,7 @@ if __name__ == '__main__':
         wav_loss_50ms = np.mean(wav_loss_50ms)
         missa_amp_loss = np.mean(missa_amp_loss)
         missa_wav_loss = np.mean(missa_wav_loss)
+        sdr_metric = np.mean(sdr_metric)
 
         hemi_total_loss = np.mean(hemi_total_loss)
         hemi_amp_loss = np.mean(hemi_amp_loss)
@@ -371,6 +406,7 @@ if __name__ == '__main__':
         hemi_wav_loss_50ms = np.mean(hemi_wav_loss_50ms)
         hemi_missa_amp_loss = np.mean(hemi_missa_amp_loss)
         hemi_missa_wav_loss = np.mean(hemi_missa_wav_loss)
+        hemi_sdr_metric = np.mean(hemi_sdr_metric)
 
         large_total_loss = np.mean(large_total_loss)
         large_amp_loss = np.mean(large_amp_loss)
@@ -379,6 +415,7 @@ if __name__ == '__main__':
         large_wav_loss_50ms = np.mean(large_wav_loss_50ms)
         large_missa_amp_loss = np.mean(large_missa_amp_loss)
         large_missa_wav_loss = np.mean(large_missa_wav_loss)
+        large_sdr_metric = np.mean(large_sdr_metric)
 
         medium_total_loss = np.mean(medium_total_loss)
         medium_amp_loss = np.mean(medium_amp_loss)
@@ -387,6 +424,7 @@ if __name__ == '__main__':
         medium_wav_loss_50ms = np.mean(medium_wav_loss_50ms)
         medium_missa_amp_loss = np.mean(medium_missa_amp_loss)
         medium_missa_wav_loss = np.mean(medium_missa_wav_loss)
+        medium_sdr_metric = np.mean(medium_sdr_metric)
 
         shoe_total_loss = np.mean(shoe_total_loss)
         shoe_amp_loss = np.mean(shoe_amp_loss)
@@ -395,6 +433,7 @@ if __name__ == '__main__':
         shoe_wav_loss_50ms = np.mean(shoe_wav_loss_50ms)
         shoe_missa_amp_loss = np.mean(shoe_missa_amp_loss)
         shoe_missa_wav_loss = np.mean(shoe_missa_wav_loss)
+        shoe_sdr_metric = np.mean(shoe_sdr_metric)
 
         small_total_loss = np.mean(small_total_loss)
         small_amp_loss = np.mean(small_amp_loss)
@@ -403,6 +442,7 @@ if __name__ == '__main__':
         small_wav_loss_50ms = np.mean(small_wav_loss_50ms)
         small_missa_amp_loss = np.mean(small_missa_amp_loss)
         small_missa_wav_loss = np.mean(small_missa_wav_loss)
+        small_sdr_metric = np.mean(small_sdr_metric)
 
         time_inference = np.mean(time_inference[1:])
         time_postprocessing = np.mean(time_postprocessing[1:])
@@ -461,127 +501,27 @@ if __name__ == '__main__':
                                       np.format_float_scientific(large_missa_wav_loss, precision=4),
                                       np.format_float_scientific(medium_missa_wav_loss, precision=4),
                                       np.format_float_scientific(shoe_missa_wav_loss, precision=4),
-                                      np.format_float_scientific(small_missa_wav_loss, precision=4)]
-
+                                      np.format_float_scientific(small_missa_wav_loss, precision=4)],
+            "SDR": [np.format_float_scientific(sdr_metric, precision=4),
+                    np.format_float_scientific(hemi_sdr_metric, precision=4),
+                    np.format_float_scientific(large_wav_loss, precision=4),
+                    np.format_float_scientific(medium_wav_loss, precision=4),
+                    np.format_float_scientific(shoe_wav_loss, precision=4),
+                    np.format_float_scientific(small_wav_loss, precision=4)],
         }
 
         time_dataframe = pd.DataFrame(time_data)
         loss_dataframe = pd.DataFrame(loss_data)
 
-        time_dataframe.to_csv(f'{saving_path}/{model_name + modifier}_{algorithm}/{model_name + modifier}_infer_time.csv', index=False)
-        loss_dataframe.to_csv(f'{saving_path}/{model_name + modifier}_{algorithm}/{model_name + modifier}_losses.csv', index=False)
+        time_dataframe.to_csv(
+            f'{saving_path}/{model_name + modifier}_{algorithm}/{model_name + modifier}_infer_time.csv', index=False)
+        loss_dataframe.to_csv(f'{saving_path}/{model_name + modifier}_{algorithm}/{model_name + modifier}_losses.csv',
+                              index=False)
 
-        with open(f'{saving_path}/{model_name + modifier}_{algorithm}/{model_name + modifier}_results_inference.txt', 'w') as text_file:
-            text_file.write(f'Device(s) : {tf.config.experimental.get_device_details(physical_devices[0])["device_name"]} {model_name + modifier} results:\n\n')
-            text_file.write(f'Took {np.format_float_positional(time_inference, precision=5)} '
-                            f's on average to infer spectrograms with batch size of {emb.shape[0]}\n')
-            text_file.write(f'Took {np.format_float_positional(time_postprocessing, precision=5)} '
-                            f's on average to postprocess and generate each spectrogram and waveform\n')
-            text_file.write(f'Took {np.format_float_positional(time_loss, precision=5)} '
-                            f's on average to obtain the losses for each waveform\n')
-            text_file.write(f'Took {np.format_float_positional((end - start), precision=5)} '
-                            f's to generate, postprocess and obtain loss for '
-                            f'{numUpdates * emb.shape[0]} samples\n')
-            text_file.write('\n')
+        print('Done! Clearing cache and allocated memory')
 
-            text_file.write(f'Total losses:\n')
-
-            text_file.write(f'Total loss: {np.format_float_positional(total_loss, precision=4)} (MSE whole spectrogram)'
-                            f'\t|\tAmplitude loss: {np.format_float_positional(amp_loss, precision=4)} (MSE amplitude)'
-                            f'\t|\tPhase loss: {np.format_float_positional(pha_loss, precision=4)} (1-cos(y_true - y_pred))'
-                            f'\n')
-            text_file.write(f'Waveform loss: {np.format_float_scientific(wav_loss, precision=4)} (MSE)'
-                            f'\t|\t 50 ms waveform loss: {np.format_float_scientific(wav_loss_50ms, precision=4)} (MSE)'
-                            f'\n')
-            text_file.write(
-                f'Misalignment loss (amplitude): {np.format_float_scientific(missa_amp_loss, precision=4)} (dB)'
-                f'\t|\t Misalignment loss (wav): {np.format_float_scientific(missa_wav_loss, precision=4)} (dB)'
-                f'\n')
-            text_file.write('\n')
-
-            text_file.write(f'HemiAnechoicRoom losses ({hemi_count} samples):\n')
-
-            text_file.write(
-                f'Total loss: {np.format_float_positional(hemi_total_loss, precision=4)} (MSE whole spectrogram)'
-                f'\t|\tAmplitude loss: {np.format_float_positional(hemi_amp_loss, precision=4)} (MSE amplitude)'
-                f'\t|\tPhase loss: {np.format_float_positional(hemi_pha_loss, precision=4)} (1-cos(y_true - y_pred))'
-                f'\n')
-            text_file.write(f'Waveform loss: {np.format_float_scientific(hemi_wav_loss, precision=4)} (MSE)'
-                            f'\t|\t 50 ms waveform loss: {np.format_float_scientific(hemi_wav_loss_50ms, precision=4)} (MSE)'
-                            f'\n')
-            text_file.write(
-                f'Misalignment loss (amplitude): {np.format_float_scientific(hemi_missa_amp_loss, precision=4)} (dB)'
-                f'\t|\t Misalignment loss (wav): {np.format_float_scientific(hemi_missa_wav_loss, precision=4)} (dB)'
-                f'\n')
-            text_file.write('\n')
-
-            text_file.write(f'LargeMeetingRoom losses ({large_count} samples):\n')
-
-            text_file.write(
-                f'Total loss: {np.format_float_positional(large_total_loss, precision=4)} (MSE whole spectrogram)'
-                f'\t|\tAmplitude loss: {np.format_float_positional(large_amp_loss, precision=4)} (MSE amplitude)'
-                f'\t|\tPhase loss: {np.format_float_positional(large_pha_loss, precision=4)} (1-cos(y_true - y_pred))'
-                f'\n')
-            text_file.write(f'Waveform loss: {np.format_float_scientific(large_wav_loss, precision=4)} (MSE)'
-                            f'\t|\t 50 ms waveform loss: {np.format_float_scientific(large_wav_loss_50ms, precision=4)} (MSE)'
-                            f'\n')
-            text_file.write(
-                f'Misalignment loss (amplitude): {np.format_float_scientific(large_missa_amp_loss, precision=4)} (dB)'
-                f'\t|\t Misalignment loss (wav): {np.format_float_scientific(large_missa_wav_loss, precision=4)} (dB)'
-                f'\n')
-            text_file.write('\n')
-
-            text_file.write(f'MediumMeetingRoom losses ({medium_count} samples):\n')
-
-            text_file.write(
-                f'Total loss: {np.format_float_positional(medium_total_loss, precision=4)} (MSE whole spectrogram)'
-                f'\t|\tAmplitude loss: {np.format_float_positional(medium_amp_loss, precision=4)} (MSE amplitude)'
-                f'\t|\tPhase loss: {np.format_float_positional(medium_pha_loss, precision=4)} (1-cos(y_true - y_pred))'
-                f'\n')
-            text_file.write(f'Waveform loss: {np.format_float_scientific(medium_wav_loss, precision=4)} (MSE)'
-                            f'\t|\t 50 ms waveform loss: {np.format_float_scientific(medium_wav_loss_50ms, precision=4)} (MSE)'
-                            f'\n')
-            text_file.write(
-                f'Misalignment loss (amplitude): {np.format_float_scientific(medium_missa_amp_loss, precision=4)} (dB)'
-                f'\t|\t Misalignment loss (wav): {np.format_float_scientific(medium_missa_wav_loss, precision=4)} (dB)'
-                f'\n')
-            text_file.write('\n')
-
-            text_file.write(f'ShoeBoxRoom losses ({shoe_count} samples):\n')
-
-            text_file.write(
-                f'Total loss: {np.format_float_positional(shoe_total_loss, precision=4)} (MSE whole spectrogram)'
-                f'\t|\tAmplitude loss: {np.format_float_positional(shoe_amp_loss, precision=4)} (MSE amplitude)'
-                f'\t|\tPhase loss: {np.format_float_positional(shoe_pha_loss, precision=4)} (1-cos(y_true - y_pred))'
-                f'\n')
-            text_file.write(f'Waveform loss: {np.format_float_scientific(shoe_wav_loss, precision=4)} (MSE)'
-                            f'\t|\t 50 ms waveform loss: {np.format_float_scientific(shoe_wav_loss_50ms, precision=4)} (MSE)'
-                            f'\n')
-            text_file.write(
-                f'Misalignment loss (amplitude): {np.format_float_scientific(shoe_missa_amp_loss, precision=4)} (dB)'
-                f'\t|\t Misalignment loss (wav): {np.format_float_scientific(shoe_missa_wav_loss, precision=4)} (dB)'
-                f'\n')
-            text_file.write('\n')
-
-            text_file.write(f'SmallMeetingRoom losses: ({small_count} samples)\n')
-
-            text_file.write(
-                f'Total loss: {np.format_float_positional(small_total_loss, precision=4)} (MSE whole spectrogram)'
-                f'\t|\tAmplitude loss: {np.format_float_positional(small_amp_loss, precision=4)} (MSE amplitude)'
-                f'\t|\tPhase loss: {np.format_float_positional(small_pha_loss, precision=4)} (1-cos(y_true - y_pred))'
-                f'\n')
-            text_file.write(f'Waveform loss: {np.format_float_scientific(small_wav_loss, precision=4)} (MSE)'
-                            f'\t|\t 50 ms waveform loss: {np.format_float_scientific(small_wav_loss_50ms, precision=4)} (MSE) '
-                            f'\n')
-            text_file.write(
-                f'Misalignment loss (amplitude): {np.format_float_scientific(small_missa_amp_loss, precision=4)} (dB)'
-                f'\t|\t Misalignment loss (wav): {np.format_float_scientific(small_missa_wav_loss, precision=4)} (dB)'
-                f'\n')
-
-    print('Done! Clearing cache and allocated memory')
     del trained_model
     K.clear_session()
 
     del dataset
     del test_generator
-
