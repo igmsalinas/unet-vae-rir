@@ -134,7 +134,9 @@ if __name__ == "__main__":
     print(vector)
     print(vector[0:4])
     print(vector[4:8])
-    print(vector[8:14])
-    print(vector[14:15])
+    print(vector[8:9])
+    print(vector[9:12])
+    print(vector[12:15])
     print(vector[15:16])
+    print(len(vector))
 

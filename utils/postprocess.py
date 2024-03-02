@@ -36,7 +36,7 @@ class PostProcess:
     6- Converts to wav
     """
 
-    def __init__(self, folder, algorithm="ph", n_iters=32, momentum=0):
+    def __init__(self, folder, algorithm="ph", n_iters=32, momentum=0, normalize_vector=False):
 
         self.stft = None
         self.phase = None
@@ -50,11 +50,13 @@ class PostProcess:
         self.n_iters = n_iters
         self.momentum = momentum
 
+        self.normalize_vector = normalize_vector
+
         self.wav_path = folder + f'_{self.algorithm}'
 
         self._create_directory_if_none(self.wav_path)
 
-    def post_process(self, feature, vector, des_shape=(129, 151),
+    def post_process(self, feature, vector, min_max_vector, des_shape=(129, 151),
                      n_fft=256, win_length=128, hop_length=64, sr=48000):
         """
         Takes a feature, its corresponding vector, the min_max normalization values, the previous shape of the STFT
@@ -73,6 +75,7 @@ class PostProcess:
         stft_d, phase_d = self.de_shape(stft, phase, des_shape)
         denorm_f, denorm_p = self.denormalize(stft_d, phase_d)
         self.istft(denorm_f, denorm_p, n_fft, win_length, hop_length)
+        self.align_wav(vector, min_max_vector, sr)
         # self.save_wav(sr, vector)
         # self.save_stft(feature)
 
@@ -177,3 +180,64 @@ class PostProcess:
         directory = pathlib.Path(dir_path)
         if not directory.exists():
             os.makedirs(dir_path)
+
+    def denorm_embedding(self, emb, min_max_vector):
+        """
+        Denormalizes the embedding.
+        """
+        denorm_emb = self.normalizer.denormalize_embedding(emb, min_max_vector)
+        return denorm_emb
+
+    @staticmethod
+    def find_direct_sound_index(waveform, sr, threshold=0.01, window_size=0.005):
+        """
+        Finds the index of the direct sound in a waveform by looking for a sudden increase in energy.
+        waveform: The input waveform array.
+        sr: Sampling rate of the waveform.
+        threshold: The threshold for detecting the energy spike.
+        window_size: The size of the window for energy calculation in seconds.
+        """
+        num_samples = int(window_size * sr)
+        energy = np.convolve(waveform ** 2, np.ones(num_samples) / num_samples, mode='valid')
+        # Normalize energy for comparison
+        normalized_energy = energy / np.max(energy)
+        for i, e in enumerate(normalized_energy):
+            if e > threshold:
+                return i
+        return 0  # Fallback to 0 if no direct sound is detected above the threshold
+
+    def align_wav(self, emb, min_max_vector, sr=48000):
+        """
+        1. Obtain direct sound from embedding
+        2. Align the waveform with the direct sound
+        3. Set to 0 the samples previous to the direct sound
+        """
+        # Validate inputs
+        if not isinstance(emb, np.ndarray) or len(emb) < 16:
+            raise ValueError("Invalid embedding: Must be a numpy array with at least 16 elements.")
+        if not isinstance(min_max_vector, np.ndarray) or len(min_max_vector) < 10:
+            raise ValueError("Invalid min_max_vector: Must be a numpy array with at least 10 elements.")
+        if not isinstance(sr, int) or sr <= 0:
+            raise ValueError("Invalid sampling rate: Must be a positive integer.")
+        if self.waveform is None or not isinstance(self.waveform, np.ndarray) or len(self.waveform) == 0:
+            raise ValueError("Waveform is not set or is empty.")
+
+        # Your existing code to normalize and calculate distances
+        if self.normalize_vector:
+            emb = self.denorm_embedding(emb, min_max_vector)
+        listener_pos = emb[9:12]
+        speaker_pos = emb[12:15]
+        # distance is in mm
+        distance = np.sqrt(np.sum((listener_pos - speaker_pos) ** 2))
+        num_samples = int(distance * sr / (343 * 1000))
+
+        # Use the refined method to find direct sound index
+        direct_sound_index = self.find_direct_sound_index(self.waveform, sr)
+
+        # Align waveform with direct sound
+        aligned_waveform = np.zeros_like(self.waveform)
+        aligned_waveform[direct_sound_index:direct_sound_index + len(self.waveform)] = self.waveform
+
+        self.waveform = aligned_waveform
+
+

@@ -40,6 +40,27 @@ class Normalizer:
 
         return amp, phase
 
+    def denormalize_embedding(self, emb, min_max_vector):
+        """
+        Undo this operation:
+        self.Embeddings[..., 0:4] = (self.Embeddings[..., 0:4] - self.min_dim) / (self.max_dim - self.min_dim)
+        self.Embeddings[..., 4:8] = (self.Embeddings[..., 4:8] - self.min_angle) / (self.max_angle - self.min_angle)
+        self.Embeddings[..., 8:14] = (self.Embeddings[..., 8:14] - self.min_pos) / (self.max_pos - self.min_pos)
+        if self.max_height == self.min_height:
+            self.Embeddings[..., 14:15] = 0.5
+        else:
+            self.Embeddings[..., 14:15] = (self.Embeddings[..., 14:15] - self.min_height) / (self.max_height - self.min_height)
+        self.Embeddings[..., 15:16] = (self.Embeddings[..., 15:16] - self.min_t60) / (self.max_t60 - self.min_t60)
+
+        min_max_vector = self.min_dim, self.max_dim, self.min_angle, self.max_angle, self.min_pos, self.max_pos, self.min_height,
+                self.max_height, self.min_t60, self.max_t60
+        """
+        emb[..., 0:4] = (emb[..., 0:4] * (min_max_vector[1] - min_max_vector[0])) + min_max_vector[0]
+        emb[..., 4:8] = (emb[..., 4:8] * (min_max_vector[3] - min_max_vector[2])) + min_max_vector[2]
+        emb[..., 8:14] = (emb[..., 8:14] * (min_max_vector[5] - min_max_vector[4])) + min_max_vector[4]
+        emb[..., 14:15] = (emb[..., 14:15] * (min_max_vector[7] - min_max_vector[6])) + min_max_vector[6]
+        emb[..., 15:16] = (emb[..., 15:16] * (min_max_vector[9] - min_max_vector[8])) + min_max_vector[8]
+        return emb
 
 class Loader:
 

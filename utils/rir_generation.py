@@ -3,7 +3,6 @@ import pandas as pd
 from visualize import *
 from datageneratorv2 import DataGenerator
 from dataset import Dataset
-from dl_models.ae_net import AENet
 from dl_models.autoencoder import Autoencoder
 from dl_models.vae import VAE
 from dl_models.res_ae import ResAE
@@ -11,6 +10,7 @@ from dl_models.u_net import UNet
 from dl_models.unet_vae import UNetVAE
 from dl_models.u_net_new import UNetN
 import numpy as np
+from numpy.fft import fft, ifft
 from postprocess import PostProcess
 from preprocess import Loader
 import time
@@ -31,36 +31,90 @@ University Carlos III de Madrid
 
 
 def amplitude_loss(y_true, y_pred):
-    # loss = tf.keras.backend.sqrt(tf.keras.backend.mean(tf.keras.backend.square(y_true - y_pred)) + 1.0e-12)
-    loss = tf.keras.losses.mean_squared_error(y_true, y_pred)
-    return loss
+    return tf.keras.losses.mean_squared_error(y_true, y_pred)
 
 
 def phase_loss(y_true, y_pred):
-    y_true = y_true * 2 * math.pi - math.pi
-    y_pred = y_pred * 2 * math.pi - math.pi
-    loss = tf.keras.backend.mean(1 - tf.math.cos(y_true - y_pred))
-    return loss
+    y_true_adj = y_true * 2 * math.pi - math.pi
+    y_pred_adj = y_pred * 2 * math.pi - math.pi
+    return tf.keras.backend.mean(1 - tf.math.cos(y_true_adj - y_pred_adj))
 
 
 def sdr(pred, true):
-    pred = np.array(pred)
-    true = np.array(true)
-
-    pred = pred - np.mean(pred)
-    true = true - np.mean(true)
-
-    origin_power = np.sum(true ** 2, keepdims=True) + 1e-8  # (batch, 1)
-
-    scale = np.sum(true * pred, keepdims=True) / origin_power  # (batch, 1)
-
-    est_true = scale * true
-    est_res = pred - est_true
-
+    pred_adj = pred - np.mean(pred)
+    true_adj = true - np.mean(true)
+    origin_power = np.sum(true_adj ** 2) + 1e-8
+    scale = np.sum(true_adj * pred_adj) / origin_power
+    est_true = scale * true_adj
+    est_res = pred_adj - est_true
     true_power = np.sum(est_true ** 2)
     res_power = np.sum(est_res ** 2)
+    return 10 * np.log10(true_power) - 10 * np.log10(res_power)
 
-    return 10 * np.log10(true_power) - 10 * np.log10(res_power)  # (batch, 1)
+
+def calculate_similarity(signal_a, signal_b, weights=None):
+    """
+    Compares two signals using various similarity measures and combines them into a single metric.
+
+    Parameters:
+    - signal_a: np.array, the first signal.
+    - signal_b: np.array, the second signal.
+    - weights: dict, optional; weights for each similarity measure.
+
+    Returns:
+    - metric: float, a composite metric evaluating the similarity between the two signals.
+    """
+    if weights is None:
+        weights = {
+            'time_static': 1.0,
+            'time_shift': 1.0,
+            'freq_static': 1.0,
+            'freq_shift': 1.0,
+            'energy': 1.0,
+        }
+
+    def time_domain_similarity_static():
+        return np.sum(signal_a * signal_b)
+
+    def time_domain_similarity_shift():
+        fft_a = fft(signal_a)
+        fft_b = fft(signal_b)
+        product = fft_a * np.conj(fft_b)
+        return np.sum(np.abs(ifft(product)))
+
+    def frequency_domain_similarity_static():
+        fft_a = fft(signal_a)
+        fft_b = fft(signal_b)
+        return np.sum(np.abs(fft_a * np.conj(fft_b)))
+
+    def frequency_domain_similarity_shift():
+        product = signal_a * signal_b
+        fft_product = fft(product)
+        return np.sum(np.abs(fft_product))
+
+    def energy_similarity():
+        power_a = np.sum(np.square(signal_a)) / len(signal_a)
+        power_b = np.sum(np.square(signal_b)) / len(signal_b)
+        return np.abs(power_a - power_b)
+
+    # Compute similarities
+    similarities = {
+        'time_static': time_domain_similarity_static(),
+        'time_shift': time_domain_similarity_shift(),
+        'freq_static': frequency_domain_similarity_static(),
+        'freq_shift': frequency_domain_similarity_shift(),
+        'energy': energy_similarity(),
+    }
+
+    # Normalize and weight similarities
+    max_vals = {key: max(1, np.abs(val)) for key, val in similarities.items()}  # Avoid division by zero
+    weighted_sum = sum(weights[key] * (similarities[key] / max_vals[key]) for key in similarities)
+    total_weight = sum(weights.values())
+
+    # Compute final metric
+    metric = weighted_sum / total_weight
+
+    return metric
 
 
 if __name__ == '__main__':
@@ -101,6 +155,10 @@ if __name__ == '__main__':
                       normalize_vector=normalize_vector)
     test_generator = DataGenerator(dataset, batch_size=batch_size, partition='test', shuffle=False,
                                    characteristics=True)
+    if normalize_vector:
+        min_max_vector = dataset.return_min_max_vector()
+    else:
+        min_max_vector = None
 
     if 'unet-n' == model_name:
         print("Generating with UNET-N")
@@ -191,13 +249,14 @@ if __name__ == '__main__':
     for algorithm in algorithms:
 
         postprocessor = PostProcess(folder=saving_path + "/" + model_name + modifier, algorithm=algorithm,
-                                    momentum=momentum, n_iters=n_iters)
+                                    momentum=momentum, n_iters=n_iters, normalize_vector=normalize_vector)
 
         time.sleep(1)
         print(f'Generating wavs and obtaining loss | {algorithm}')
         numUpdates = test_generator.__len__()
         time_inference, time_postprocessing, time_loss = [], [], []
-        total_loss, amp_loss, pha_loss, wav_loss, wav_loss_50ms, missa_amp_loss, missa_wav_loss, sdr_metric = [], [], [], [], [], [], [], []
+        (total_loss, amp_loss, pha_loss, wav_loss, wav_loss_50ms,
+         missa_amp_loss, missa_wav_loss, sdr_metric, similarity_metric) = [], [], [], [], [], [], [], [], []
 
         hemi_total_loss, large_total_loss, medium_total_loss, shoe_total_loss, small_total_loss = [], [], [], [], []
         hemi_amp_loss, large_amp_loss, medium_amp_loss, shoe_amp_loss, small_amp_loss = [], [], [], [], []
@@ -207,6 +266,7 @@ if __name__ == '__main__':
         hemi_missa_amp_loss, large_missa_amp_loss, medium_missa_amp_loss, shoe_missa_amp_loss, small_missa_amp_loss = [], [], [], [], []
         hemi_missa_wav_loss, large_missa_wav_loss, medium_missa_wav_loss, shoe_missa_wav_loss, small_missa_wav_loss = [], [], [], [], []
         hemi_sdr_metric, large_sdr_metric, medium_sdr_metric, shoe_sdr_metric, small_sdr_metric = [], [], [], [], []
+        hemi_similarity_metric, large_similarity_metric, medium_similarity_metric, shoe_similarity_metric, small_similarity_metric = [], [], [], [], []
 
         hemi_count, large_count, medium_count, shoe_count, small_count = 0, 0, 0, 0, 0
 
@@ -236,9 +296,9 @@ if __name__ == '__main__':
                 if diff_gen:
                     diff_phase_generated = (spec_generated[j, :, :, 1] + spec_in[j, :, :, 1]).numpy()
                     diff_spec_generated = np.stack((spec_generated[j, :, :, 0], diff_phase_generated), axis=-1)
-                    wav_pred = postprocessor.post_process(diff_spec_generated, emb[j, 1, :])
+                    wav_pred = postprocessor.post_process(diff_spec_generated, emb[j, 1, :], min_max_vector)
                 else:
-                    wav_pred = postprocessor.post_process(spec_generated[j], emb[j, 1, :])
+                    wav_pred = postprocessor.post_process(spec_generated[j], emb[j, 1, :], min_max_vector)
 
                 end_gen = time.time()
                 time_postprocessing.append(end_gen - start_gen)
@@ -290,6 +350,9 @@ if __name__ == '__main__':
                 sdr_metric_wav = sdr(wav_pred, wav_true)
                 sdr_metric.append(sdr_metric_wav)
 
+                similarity = calculate_similarity(wav_true, wav_pred)
+                similarity_metric.append(similarity)
+
                 if characteristic_out[0] == 'HemiAnechoicRoom':
                     hemi_count += 1
 
@@ -304,6 +367,7 @@ if __name__ == '__main__':
                     hemi_missa_wav_loss.append(loss_missa_wav)
 
                     hemi_sdr_metric.append(sdr_metric_wav)
+                    hemi_similarity_metric.append(similarity)
 
                 if characteristic_out[0] == 'LargeMeetingRoom':
                     large_count += 1
@@ -319,6 +383,7 @@ if __name__ == '__main__':
                     large_missa_wav_loss.append(loss_missa_wav)
 
                     large_sdr_metric.append(sdr_metric_wav)
+                    large_similarity_metric.append(similarity)
 
                 if characteristic_out[0] == 'MediumMeetingRoom':
                     medium_count += 1
@@ -334,6 +399,7 @@ if __name__ == '__main__':
                     medium_missa_wav_loss.append(loss_missa_wav)
 
                     medium_sdr_metric.append(sdr_metric_wav)
+                    medium_similarity_metric.append(similarity)
 
                 if characteristic_out[0] == 'ShoeBoxRoom':
                     shoe_count += 1
@@ -349,6 +415,7 @@ if __name__ == '__main__':
                     shoe_missa_wav_loss.append(loss_missa_wav)
 
                     shoe_sdr_metric.append(sdr_metric_wav)
+                    shoe_similarity_metric.append(similarity)
 
                 if characteristic_out[0] == 'SmallMeetingRoom':
                     small_count += 1
@@ -363,7 +430,8 @@ if __name__ == '__main__':
                     small_missa_amp_loss.append(loss_missa_amp)
                     small_missa_wav_loss.append(loss_missa_wav)
 
-                    shoe_sdr_metric.append(sdr_metric_wav)
+                    small_sdr_metric.append(sdr_metric_wav)
+                    small_similarity_metric.append(similarity)
 
                 end_loss = time.time()
                 time_loss.append(end_loss - start_loss)
@@ -398,6 +466,7 @@ if __name__ == '__main__':
         missa_amp_loss = np.mean(missa_amp_loss)
         missa_wav_loss = np.mean(missa_wav_loss)
         sdr_metric = np.mean(sdr_metric)
+        similarity_metric = np.mean(similarity_metric)
 
         hemi_total_loss = np.mean(hemi_total_loss)
         hemi_amp_loss = np.mean(hemi_amp_loss)
@@ -407,6 +476,7 @@ if __name__ == '__main__':
         hemi_missa_amp_loss = np.mean(hemi_missa_amp_loss)
         hemi_missa_wav_loss = np.mean(hemi_missa_wav_loss)
         hemi_sdr_metric = np.mean(hemi_sdr_metric)
+        hemi_similarity_metric = np.mean(hemi_similarity_metric)
 
         large_total_loss = np.mean(large_total_loss)
         large_amp_loss = np.mean(large_amp_loss)
@@ -416,6 +486,7 @@ if __name__ == '__main__':
         large_missa_amp_loss = np.mean(large_missa_amp_loss)
         large_missa_wav_loss = np.mean(large_missa_wav_loss)
         large_sdr_metric = np.mean(large_sdr_metric)
+        large_similarity_metric = np.mean(large_similarity_metric)
 
         medium_total_loss = np.mean(medium_total_loss)
         medium_amp_loss = np.mean(medium_amp_loss)
@@ -425,6 +496,7 @@ if __name__ == '__main__':
         medium_missa_amp_loss = np.mean(medium_missa_amp_loss)
         medium_missa_wav_loss = np.mean(medium_missa_wav_loss)
         medium_sdr_metric = np.mean(medium_sdr_metric)
+        medium_similarity_metric = np.mean(medium_similarity_metric)
 
         shoe_total_loss = np.mean(shoe_total_loss)
         shoe_amp_loss = np.mean(shoe_amp_loss)
@@ -434,6 +506,7 @@ if __name__ == '__main__':
         shoe_missa_amp_loss = np.mean(shoe_missa_amp_loss)
         shoe_missa_wav_loss = np.mean(shoe_missa_wav_loss)
         shoe_sdr_metric = np.mean(shoe_sdr_metric)
+        shoe_similarity_metric = np.mean(shoe_similarity_metric)
 
         small_total_loss = np.mean(small_total_loss)
         small_amp_loss = np.mean(small_amp_loss)
@@ -443,6 +516,7 @@ if __name__ == '__main__':
         small_missa_amp_loss = np.mean(small_missa_amp_loss)
         small_missa_wav_loss = np.mean(small_missa_wav_loss)
         small_sdr_metric = np.mean(small_sdr_metric)
+        small_similarity_metric = np.mean(small_similarity_metric)
 
         time_inference = np.mean(time_inference[1:])
         time_postprocessing = np.mean(time_postprocessing[1:])
@@ -508,6 +582,12 @@ if __name__ == '__main__':
                     np.format_float_scientific(medium_wav_loss, precision=4),
                     np.format_float_scientific(shoe_wav_loss, precision=4),
                     np.format_float_scientific(small_wav_loss, precision=4)],
+            "Similarity": [np.format_float_scientific(similarity_metric, precision=4),
+                           np.format_float_scientific(hemi_similarity_metric, precision=4),
+                           np.format_float_scientific(large_similarity_metric, precision=4),
+                           np.format_float_scientific(medium_similarity_metric, precision=4),
+                           np.format_float_scientific(shoe_similarity_metric, precision=4),
+                           np.format_float_scientific(small_similarity_metric, precision=4)]
         }
 
         time_dataframe = pd.DataFrame(time_data)
