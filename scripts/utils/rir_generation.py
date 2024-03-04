@@ -137,20 +137,21 @@ if __name__ == '__main__':
     arrays = ["PlanarMicrophoneArray"]
     zones = None
 
-    algorithms = ['gl_ph', 'gl_mag', 'ph']  # ['gl_ph', 'gl_mag', 'ph']
+    algorithms = ['ph']  # ['gl_ph', 'gl_mag', 'ph']
     n_iters = 64
     momentum = 0.99
 
     diff_gen = True
 
-    models_folder = '../results/'
-    saving_path = '../generated_rir_distributed/' + model_name + modifier
+    dataset_dir = '../../../datasets'
+    models_folder = '../../results/bottleneck/'
+    saving_path = '../../generated_rir/' + model_name + modifier
 
     loader = Loader(sample_rate=48000, mono=True, duration=0.2)
 
     # Load data into RAM
 
-    dataset = Dataset('../../../datasets', 'room_impulse', normalization=True, debugging=debug, extract=False,
+    dataset = Dataset(dataset_dir, 'room_impulse', normalization=True, debugging=debug, extract=False,
                       room_characteristics=True, room=rooms, array=arrays, zone=zones,
                       normalize_vector=normalize_vector)
     test_generator = DataGenerator(dataset, batch_size=batch_size, partition='test', shuffle=False,
@@ -331,7 +332,7 @@ if __name__ == '__main__':
 
                 characteristic_out = characteristic[j, :, 1]
                 wav_true = loader.load(
-                    f'../../datasets/room_impulse/{characteristic_out[0]}/Zone{characteristic_out[1]}/{characteristic_out[2]}'
+                    f'{dataset_dir}/room_impulse/{characteristic_out[0]}/Zone{characteristic_out[1]}/{characteristic_out[2]}'
                     f'MicrophoneArray/{characteristic_out[0]}_Zone{characteristic_out[1]}_'
                     f'{characteristic_out[2]}MicrophoneArray_L{characteristic_out[3]}_M{characteristic_out[4]}.wav')
 

@@ -64,7 +64,7 @@ class PostProcess:
 
         :param feature: np.ndarray containing log magnitude and phase
         :param vector: vector list of the feature
-        :param min_max: min max values used for normalization
+        :param min_max_vector: min max values used for normalization
         :param des_shape: previous shape before padding
         :param hop_length: hop length stft
         :param win_length: window length stft
@@ -236,7 +236,7 @@ class PostProcess:
 
         # Align waveform with direct sound
         aligned_waveform = np.zeros_like(self.waveform)
-        aligned_waveform[direct_sound_index:direct_sound_index + len(self.waveform)] = self.waveform
+        aligned_waveform[direct_sound_index:len(self.waveform)] = self.waveform
 
         self.waveform = aligned_waveform
 

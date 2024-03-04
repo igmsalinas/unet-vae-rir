@@ -306,8 +306,8 @@ class Dataset:
             return None
 
     def return_min_max_vector(self):
-        return (self.min_dim, self.max_dim, self.min_angle, self.max_angle, self.min_pos, self.max_pos, self.min_height,
-                self.max_height, self.min_t60, self.max_t60)
+        return np.array((self.min_dim, self.max_dim, self.min_angle, self.max_angle, self.min_pos, self.max_pos, self.min_height,
+                self.max_height, self.min_t60, self.max_t60))
 
     def __len__(self):
         'Denotes the total number of samples'
