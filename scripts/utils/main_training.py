@@ -11,6 +11,7 @@ from dl_models.autoencoder import Autoencoder
 from dl_models.res_ae import ResAE
 from dl_models.vae import VAE
 from dl_models.unet_vae import UNetVAE
+from dl_models.unet_vae_emb import UNetVAEEmb
 import time
 from tensorflow.keras.utils import Progbar
 
@@ -36,22 +37,32 @@ if __name__ == '__main__':
     arrays = ["PlanarMicrophoneArray"]
     zones = None
 
-    name = 'unet-vae'
+    name = 'unet-vae-emb'
 
-    normalize_vector = True
+    diff = True
 
-    diff_loss = True 
+    if diff:
+        diff_str = "-diff"
+        diff_loss = True
+    else:
+        diff_str = ""
+        diff_loss = False
 
-    loss = "MAE"  # MAE or MSE
+    if name in ["unet-vae", "unet-n"]:
+        normalize_vector = True
+    else:
+        normalize_vector = False
+
+    loss = "mse"  # MAE or MSE
     alpha = 0.9
 
     mode = 3
     latent_space_dim = 64
 
-    modifier = "-64-mae-diff"
+    modifier = f"-{latent_space_dim}-{loss}{diff_str}"
 
     ########################################################
-    # Hyperparams - TEACHER MODEL TRAINING
+    # Hyperparams -  MODEL TRAINING
     ########################################################
 
     sigmoid_loss = False
@@ -192,7 +203,7 @@ if __name__ == '__main__':
                           number_filters_0=32,
                           kernels=3,
                           latent_space_dim=latent_space_dim,
-                          name="UNet"
+                          name="UNetN"
                           )
 
         elif name == "unet-vae":
@@ -203,6 +214,16 @@ if __name__ == '__main__':
                             kernels=3,
                             latent_space_dim=latent_space_dim/2,
                             name='UnetVAE'
+                            )
+
+        elif name == "unet-vae-emb":
+            model = UNetVAEEmb(input_shape=(144, 160, 2),
+                            inf_vector_shape=(2, 16),
+                            mode=mode,
+                            number_filters_0=32,
+                            kernels=3,
+                            latent_space_dim=latent_space_dim/2,
+                            name='UnetVAEEmb'
                             )
 
         # Set optimizer and checkpoint
@@ -220,10 +241,10 @@ if __name__ == '__main__':
 
         # Define the loss function
 
-        if loss == "MSE":
+        if loss == "mse":
             loss_object_amplitude = tf.keras.losses.MeanSquaredError(
                 reduction=tf.keras.losses.Reduction.NONE)
-        elif loss == "MAE":
+        elif loss == "mae":
             loss_object_amplitude = tf.keras.losses.MeanAbsoluteError(
                 reduction=tf.keras.losses.Reduction.NONE)
 

@@ -9,6 +9,7 @@ from dl_models.res_ae import ResAE
 from dl_models.u_net import UNet
 from dl_models.unet_vae import UNetVAE
 from dl_models.u_net_new import UNetN
+from dl_models.unet_vae_emb import UNetVAEEmb
 import numpy as np
 from numpy.fft import fft, ifft
 from postprocess import PostProcess
@@ -31,7 +32,7 @@ University Carlos III de Madrid
 
 
 def amplitude_loss(y_true, y_pred):
-    return tf.keras.losses.mean_squared_error(y_true, y_pred)
+    return tf.keras.losses.mse(y_true, y_pred)
 
 
 def phase_loss(y_true, y_pred):
@@ -119,19 +120,14 @@ def calculate_similarity(signal_a, signal_b, weights=None):
 
 if __name__ == '__main__':
 
+    # ['ae', 'vae', 'resae', 'unet', 'unet-n', 'unet-vae']
+    model_name = "unet-vae"
+    latent_space_dim = 256
+    loss = "mse"
+    diff = False
+
     batch_size = 16
     debug = False
-    target_size = (144, 160, 2)
-
-    # ['ae', 'vae', 'resae', 'unet', 'unet-n', 'unet-vae']
-
-    model_name = "unet-vae"
-    modifier = "-64-mae-diff"
-
-    mode = 3
-    latent_space_dim = 64
-
-    normalize_vector = True
 
     rooms = None
     arrays = ["PlanarMicrophoneArray"]
@@ -141,25 +137,26 @@ if __name__ == '__main__':
     n_iters = 64
     momentum = 0.99
 
-    diff_gen = True
+    target_size = (144, 160, 2)
+    mode = 3
+
+    if diff:
+        diff_str = "-diff"
+        diff_gen = True
+    else:
+        diff_str = ""
+        diff_gen = False
+
+    modifier = f"-{latent_space_dim}-{loss}{diff_str}"
+
+    if model_name in ["unet-vae", "unet-n"]:
+        normalize_vector = True
+    else:
+        normalize_vector = False
 
     dataset_dir = '../../../datasets'
     models_folder = '../../results/bottleneck/'
     saving_path = '../../generated_rir/' + model_name + modifier
-
-    loader = Loader(sample_rate=48000, mono=True, duration=0.2)
-
-    # Load data into RAM
-
-    dataset = Dataset(dataset_dir, 'room_impulse', normalization=True, debugging=debug, extract=False,
-                      room_characteristics=True, room=rooms, array=arrays, zone=zones,
-                      normalize_vector=normalize_vector)
-    test_generator = DataGenerator(dataset, batch_size=batch_size, partition='test', shuffle=False,
-                                   characteristics=True)
-    if normalize_vector:
-        min_max_vector = dataset.return_min_max_vector()
-    else:
-        min_max_vector = None
 
     if 'unet-n' == model_name:
         print("Generating with UNET-N")
@@ -182,6 +179,16 @@ if __name__ == '__main__':
                                 latent_space_dim=latent_space_dim / 2,
                                 name=model_name + modifier
                                 )
+
+    elif model_name == "unet-vae-emb":
+        model = UNetVAEEmb(input_shape=target_size,
+                           inf_vector_shape=(2, 16),
+                           mode=mode,
+                           number_filters_0=32,
+                           kernels=3,
+                           latent_space_dim=latent_space_dim / 2,
+                           name=model_name + modifier
+                           )
 
     elif 'vae' == model_name:
         print("Generating with VAE")
@@ -246,6 +253,20 @@ if __name__ == '__main__':
         print("Initializing from scratch.")
 
     trained_model.summary()
+
+    loader = Loader(sample_rate=48000, mono=True, duration=0.2)
+
+    # Load data into RAM
+
+    dataset = Dataset(dataset_dir, 'room_impulse', normalization=True, debugging=debug, extract=False,
+                      room_characteristics=True, room=rooms, array=arrays, zone=zones,
+                      normalize_vector=normalize_vector)
+    test_generator = DataGenerator(dataset, batch_size=batch_size, partition='test', shuffle=False,
+                                   characteristics=True)
+    if normalize_vector:
+        min_max_vector = dataset.return_min_max_vector()
+    else:
+        min_max_vector = None
 
     for algorithm in algorithms:
 

@@ -189,22 +189,20 @@ class PostProcess:
         return denorm_emb
 
     @staticmethod
-    def find_direct_sound_index(waveform, sr, threshold=0.01, window_size=0.005):
+    def find_direct_sound_index(waveform):
         """
-        Finds the index of the direct sound in a waveform by looking for a sudden increase in energy.
+        Find the direct sound index in the waveform. Its either the first maximum of the first minimum.
         waveform: The input waveform array.
-        sr: Sampling rate of the waveform.
-        threshold: The threshold for detecting the energy spike.
-        window_size: The size of the window for energy calculation in seconds.
         """
-        num_samples = int(window_size * sr)
-        energy = np.convolve(waveform ** 2, np.ones(num_samples) / num_samples, mode='valid')
-        # Normalize energy for comparison
-        normalized_energy = energy / np.max(energy)
-        for i, e in enumerate(normalized_energy):
-            if e > threshold:
-                return i
-        return 0  # Fallback to 0 if no direct sound is detected above the threshold
+        # Find the first maximum and minimum
+        max_index = np.argmax(waveform)
+        min_index = np.argmin(waveform)
+        # Return the index of the first maximum or minimum and if it is the maximum or the minimum
+        if max_index < min_index:
+            return True, max_index
+        else:
+            return False, min_index
+
 
     def align_wav(self, emb, min_max_vector, sr=48000):
         """
@@ -227,17 +225,30 @@ class PostProcess:
             emb = self.denorm_embedding(emb, min_max_vector)
         listener_pos = emb[9:12]
         speaker_pos = emb[12:15]
-        # distance is in mm
+        # Obtain the distance between the listener and the speaker
         distance = np.sqrt(np.sum((listener_pos - speaker_pos) ** 2))
-        num_samples = int(distance * sr / (343 * 1000))
+        # Calculate the number of samples to set to 0 given the distance and the speed of sound at 20 degrees and the sampling rate
+        num_samples = int((distance / 34300) * sr)
+        original_length = len(self.waveform)
+        # Find the direct sound index
+        min_max, direct_sound_index = self.find_direct_sound_index(self.waveform)
+        # Get the sum of previous samples before the direct sound
+        sum_previous_samples = np.sum(np.abs(self.waveform[:direct_sound_index]))
 
-        # Use the refined method to find direct sound index
-        direct_sound_index = self.find_direct_sound_index(self.waveform, sr)
+        # Add or subtract the sum of previous samples to the samples that have been set to 0
+        # if min_max:
+        #     self.waveform[direct_sound_index] += sum_previous_samples
+        # else:
+        #     self.waveform[direct_sound_index] -= sum_previous_samples
 
-        # Align waveform with direct sound
-        aligned_waveform = np.zeros_like(self.waveform)
-        aligned_waveform[direct_sound_index:len(self.waveform)] = self.waveform
+        # Align the waveform with the direct sound
+        self.waveform = np.concatenate((np.zeros(num_samples), self.waveform[direct_sound_index:]), dtype=np.float32)
+        if len(self.waveform) > original_length:
+            self.waveform = self.waveform[:original_length]
+        elif len(self.waveform) < original_length:
+            self.waveform = np.concatenate((self.waveform, np.zeros(original_length - len(self.waveform))), dtype=np.float32)
+        # Return the aligned waveform
+        return self.waveform
 
-        self.waveform = aligned_waveform
 
 
