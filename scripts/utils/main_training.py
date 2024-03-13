@@ -30,7 +30,7 @@ if __name__ == '__main__':
     # Inputs and model selection
     ########################################################
 
-    debug = False
+    debug = True
 
     target_size = (144, 160, 2)
     rooms = None
@@ -313,7 +313,7 @@ if __name__ == '__main__':
 
         # VAE metrics
 
-        if name == "vae" or name == "unet-vae":
+        if name == "vae" or name == "unet-vae" or name == "unet-vae-emb":
             train_loss_kl = tf.keras.metrics.Mean(name='train_loss_kl')
             val_loss_kl = tf.keras.metrics.Mean(name='val_loss_kl')
 
@@ -325,14 +325,14 @@ if __name__ == '__main__':
             if name == "vae":
                 z, mean, log_var = model.encoder([spec_in, emb], training=True)
                 spec_pred = model.decoder(z, training=True)
-            elif name == "unet-vae":
+            elif name == "unet-vae" or name == "unet-vae-emb":
                 spec_pred, mean, log_var = model.model([spec_in, emb], training=True)
             else:
                 spec_pred = model.model([spec_in, emb], training=True)
 
             loss = compute_loss(spec_in, spec_out, spec_pred, model.model.losses)
 
-            if name == "vae" or name == "unet-vae":
+            if name == "vae" or name == "unet-vae" or name == "unet-vae-emb":
                 loss += compute_kl_loss(mean, log_var)
 
         gradients = tape.gradient(loss, model.model.trainable_variables)
@@ -354,7 +354,7 @@ if __name__ == '__main__':
         train_loss_amplitude.update_state(loss_amplitude)
         train_loss_phase.update_state(loss_phase)
 
-        if name == "vae" or name == "unet-vae":
+        if name == "vae" or name == "unet-vae" or name == "unet-vae-emb":
             loss_kl = kl_loss_object(mean, log_var)
             train_loss_kl.update_state(loss_kl)
 
@@ -367,7 +367,7 @@ if __name__ == '__main__':
         if name == "vae":
             z, mean, log_var = model.encoder([spec_in, emb], training=True)
             spec_pred = model.decoder(z, training=True)
-        elif name == "unet-vae":
+        elif name == "unet-vae" or name == "unet-vae-emb":
             spec_pred, mean, log_var = model.model([spec_in, emb], training=True)
         else:
             spec_pred = model.model([spec_in, emb], training=True)
@@ -390,7 +390,7 @@ if __name__ == '__main__':
         val_loss_amplitude.update_state(loss_amplitude)
         val_loss_phase.update_state(loss_phase)
 
-        if name == "vae" or name == "unet-vae":
+        if name == "vae" or name == "unet-vae" or name == "unet-vae-emb":
             loss_kl = kl_loss_object(mean, log_var)
             val_loss_kl.update_state(loss_kl)
             loss += compute_kl_loss(mean, log_var)
@@ -458,7 +458,7 @@ if __name__ == '__main__':
 
         epoch_end = time.time()
 
-        if name == "vae" or name == "unet-vae":
+        if name == "vae" or name == "unet-vae" or name == "unet-vae-emb":
             template = ("Epoch {}, Loss: {}, Epoch time: {}\n"
                         "Train | {} Loss: {}, Phase Loss: {}, KL Loss: {}\n"
                         "Val   | {} Loss: {}, Phase Loss: {}, KL Loss: {}\n"
