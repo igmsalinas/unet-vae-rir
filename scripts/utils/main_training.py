@@ -30,7 +30,7 @@ if __name__ == '__main__':
     # Inputs and model selection
     ########################################################
 
-    debug = True
+    debug = False 
 
     target_size = (144, 160, 2)
     rooms = None
@@ -57,7 +57,7 @@ if __name__ == '__main__':
     alpha = 0.9
 
     mode = 3
-    latent_space_dim = 64
+    latent_space_dim = 128 
 
     modifier = f"-{latent_space_dim}-{loss}{diff_str}"
 
