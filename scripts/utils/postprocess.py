@@ -210,15 +210,6 @@ class PostProcess:
         2. Align the waveform with the direct sound
         3. Set to 0 the samples previous to the direct sound
         """
-        # Validate inputs
-        if not isinstance(emb, np.ndarray) or len(emb) < 16:
-            raise ValueError("Invalid embedding: Must be a numpy array with at least 16 elements.")
-        if not isinstance(min_max_vector, np.ndarray) or len(min_max_vector) < 10:
-            raise ValueError("Invalid min_max_vector: Must be a numpy array with at least 10 elements.")
-        if not isinstance(sr, int) or sr <= 0:
-            raise ValueError("Invalid sampling rate: Must be a positive integer.")
-        if self.waveform is None or not isinstance(self.waveform, np.ndarray) or len(self.waveform) == 0:
-            raise ValueError("Waveform is not set or is empty.")
 
         # Your existing code to normalize and calculate distances
         if self.normalize_vector:

@@ -123,7 +123,7 @@ if __name__ == '__main__':
     # ['ae', 'vae', 'resae', 'unet', 'unet-n', 'unet-vae']
     model_name = "unet-vae-emb"
     latent_space_dim = 128
-    loss = "mse"
+    loss = "mae"
     diff = True
 
     batch_size = 16
@@ -155,7 +155,7 @@ if __name__ == '__main__':
         normalize_vector = False
 
     dataset_dir = '../../../datasets'
-    models_folder = '../../results/bottleneck/'
+    models_folder = '../../results/'
     saving_path = '../../generated_rir/' + model_name + modifier
 
     if 'unet-n' == model_name:
@@ -304,7 +304,7 @@ if __name__ == '__main__':
             spec_in, emb, spec_out, characteristic = test_generator.__getitem__(i)
 
             start_inf = time.time()
-            if model_name == "unet-vae":
+            if model_name == "unet-vae" or model_name == 'unet-vae-emb':
                 spec_generated, _, _ = trained_model.model([spec_in, emb], training=False)
             else:
                 spec_generated = trained_model.model([spec_in, emb], training=False)

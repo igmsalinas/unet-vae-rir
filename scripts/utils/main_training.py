@@ -39,7 +39,7 @@ if __name__ == '__main__':
 
     name = 'unet-vae-emb'
 
-    diff = True
+    diff = True 
 
     if diff:
         diff_str = "-diff"
@@ -53,7 +53,7 @@ if __name__ == '__main__':
     else:
         normalize_vector = False
 
-    loss = "mse"  # MAE or MSE
+    loss = "mae"  # MAE or MSE
     alpha = 0.9
 
     mode = 3
