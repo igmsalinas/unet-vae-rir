@@ -121,10 +121,10 @@ def calculate_similarity(signal_a, signal_b, weights=None):
 if __name__ == '__main__':
 
     # ['ae', 'vae', 'resae', 'unet', 'unet-n', 'unet-vae']
-    model_name = "unet-vae"
-    latent_space_dim = 256
+    model_name = "unet-vae-emb"
+    latent_space_dim = 128
     loss = "mse"
-    diff = False
+    diff = True
 
     batch_size = 16
     debug = False
@@ -180,8 +180,8 @@ if __name__ == '__main__':
                                 name=model_name + modifier
                                 )
 
-    elif model_name == "unet-vae-emb":
-        model = UNetVAEEmb(input_shape=target_size,
+    elif 'unet-vae-emb' == model_name:
+        trained_model = UNetVAEEmb(input_shape=target_size,
                            inf_vector_shape=(2, 16),
                            mode=mode,
                            number_filters_0=32,
