@@ -64,10 +64,11 @@ class Normalizer:
 
 class Loader:
 
-    def __init__(self, sample_rate, duration, mono):
+    def __init__(self, sample_rate, duration, mono, down_sampling=False):
         self.sample_rate = sample_rate
         self.duration = duration
         self.mono = mono
+        self.down_sampling = down_sampling
 
     def load(self, file_path):
         signal = librosa.load(file_path,
@@ -75,6 +76,8 @@ class Loader:
                               duration=self.duration,
                               mono=self.mono)[0]
         signal -= np.mean(signal)
+        if self.down_sampling:
+            signal = librosa.resample(signal, orig_sr=self.sample_rate, target_sr=16000)
         return signal
 
 
@@ -151,7 +154,7 @@ if __name__ == '__main__':
     MONO = True
     DESIRED_SHAPE = (144, 160)
 
-    loader = Loader(SAMPLE_RATE, DURATION, MONO)
+    loader = Loader(SAMPLE_RATE, DURATION, MONO, down_sampling=True)
     normalizer = Normalizer()
     extractor = FeatureExtractor(n_fft=N_FFT, win_length=WINDOW_LENGTH, hop_length=HOP_LENGTH)
     padder = TensorPadder(DESIRED_SHAPE)
@@ -159,7 +162,7 @@ if __name__ == '__main__':
     features = []
     room = 'ShoeBox'
 
-    wav = loader.load(f'C:/Users/Ignacio/Documents/UC3M/TFG-TFM/datasets/room_impulse/{room}'
+    wav = loader.load(f'E:/Work/UC3M/UPV/RIR/datasets/room_impulse/{room}'
                       f'Room/ZoneA/PlanarMicrophoneArray/{room}Room_ZoneA_PlanarMicrophoneArray_L1_M1.wav')
     plot_wav(wav)
 

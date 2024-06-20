@@ -44,10 +44,8 @@ class SamplingLayer(layers.Layer):
 
 class UNetVAE:
     """
-    Autoencoder represents a Deep Convolutional autoencoder architecture with
-    mirrored encoder and decoder components with the addition of the information vector as an input.
+    UNetVAE is a class that defines a Variational Autoencoder with a U-Net architecture
     """
-
     def __init__(self, input_shape, inf_vector_shape,
                  learning_rate=1e-5,
                  mode=0, number_filters_0=32, kernels=6,
@@ -463,12 +461,26 @@ class UNetVAE:
 if __name__ == "__main__":
     print("Num GPUs Available: ", len(tf.config.list_physical_devices('GPU')))
     with tf.device('/GPU:0'):
-        unet = UNetVAE(input_shape=(144, 160, 2),
+        unet = UNetVAE(input_shape=(144, 64, 2),
                        inf_vector_shape=(2, 16),
                        mode=3,
                        number_filters_0=32,
                        kernels=3,
-                       latent_space_dim=64,
-                       name='UnetVAE'
+                       latent_space_dim=64 / 2,
+                       name='unet-vae-64-mse-diff'
                        )
-        unet.summary()
+
+    models_folder = "models/"
+    model_name = "unet-vae-64-mse-diff"
+
+    optimizer = tf.keras.optimizers.Adam()
+    checkpoint = tf.train.Checkpoint(optimizer=optimizer, model=unet.model)
+    manager = tf.train.CheckpointManager(checkpoint, directory=models_folder + model_name, max_to_keep=1)
+    checkpoint.restore(manager.latest_checkpoint)
+
+    if manager.latest_checkpoint:
+        print("Restored from {}".format(manager.latest_checkpoint))
+    else:
+        print("Initializing from scratch.")
+
+    unet.summary()

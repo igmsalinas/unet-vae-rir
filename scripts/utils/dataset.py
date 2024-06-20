@@ -11,7 +11,7 @@ from preprocess import Normalizer, FeatureExtractor, Loader, TensorPadder
 class Dataset:
 
     def __init__(self, dir_dataset, dataset_name, extract=False, normalization=True, debugging=False,
-                 room_characteristics=False, room=None, array=None, zone=None, normalize_vector=False):
+                 room_characteristics=False, room=None, array=None, zone=None, normalize_vector=False, downsample=False):
 
         'Initialization'
 
@@ -68,8 +68,12 @@ class Dataset:
         self.duration = 0.2  # in seconds
         self.sr = 48000
         self.mono = True
+        self.downsample = downsample
 
-        self.input_shape = (144, 160)
+        if self.downsample:
+            self.input_shape = (144, 64)
+        else:
+            self.input_shape = (144, 160)
 
         self.normalization = normalization
         self.debugging = debugging
@@ -136,7 +140,7 @@ class Dataset:
     def set_preprocessers(self):
         self.normalizer = Normalizer()
         self.extractor = FeatureExtractor(n_fft=self.n_fft, win_length=self.win_length, hop_length=self.hop_length)
-        self.loader = Loader(sample_rate=self.sr, duration=self.duration, mono=self.mono)
+        self.loader = Loader(sample_rate=self.sr, duration=self.duration, mono=self.mono, down_sampling=self.downsample)
         self.padder = TensorPadder(desired_shape=self.input_shape)
 
     def load_data(self):

@@ -37,9 +37,11 @@ if __name__ == '__main__':
     arrays = ["PlanarMicrophoneArray"]
     zones = None
 
-    name = 'unet-vae-emb'
+    name = 'unet-vae'
 
     diff = True
+
+    downsample = False
 
     if diff:
         diff_str = "-diff"
@@ -107,7 +109,7 @@ if __name__ == '__main__':
 
     # Prepare data generators
     dataset = Dataset('../../../datasets', 'room_impulse', normalization=True, debugging=debug,
-                      extract=False, room=rooms, array=arrays, zone=zones, normalize_vector=normalize_vector)
+                      extract=False, room=rooms, array=arrays, zone=zones, normalize_vector=normalize_vector, downsample=downsample)
 
     train_generator = DataGenerator(dataset, batch_size=global_batch_size, partition='train', shuffle=True,
                                     normalize_vector=normalize_vector)

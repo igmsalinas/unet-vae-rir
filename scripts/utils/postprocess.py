@@ -232,14 +232,6 @@ class PostProcess:
         original_length = len(self.waveform)
         # Find the direct sound index
         min_max, direct_sound_index = self.find_direct_sound_index(self.waveform)
-        # Get the sum of previous samples before the direct sound
-        sum_previous_samples = np.sum(np.abs(self.waveform[:direct_sound_index]))
-
-        # Add or subtract the sum of previous samples to the samples that have been set to 0
-        # if min_max:
-        #     self.waveform[direct_sound_index] += sum_previous_samples
-        # else:
-        #     self.waveform[direct_sound_index] -= sum_previous_samples
 
         # Align the waveform with the direct sound
         self.waveform = np.concatenate((np.zeros(num_samples), self.waveform[direct_sound_index:]), dtype=np.float32)
