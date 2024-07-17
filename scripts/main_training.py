@@ -32,7 +32,7 @@ if __name__ == '__main__':
 
     debug = False 
 
-    target_size = (144, 160, 2)
+    target_size = (144, 64, 2)
     rooms = None
     arrays = ["PlanarMicrophoneArray"]
     zones = None
@@ -108,7 +108,7 @@ if __name__ == '__main__':
         dtype = tf.int32
 
     # Prepare data generators
-    dataset = Dataset('../../../datasets', 'room_impulse', normalization=True, debugging=debug,
+    dataset = Dataset('../../datasets', 'room_impulse', normalization=True, debugging=debug,
                       extract=False, room=rooms, array=arrays, zone=zones, normalize_vector=normalize_vector, downsample=downsample)
 
     train_generator = DataGenerator(dataset, batch_size=global_batch_size, partition='train', shuffle=True,
