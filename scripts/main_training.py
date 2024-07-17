@@ -209,7 +209,7 @@ if __name__ == '__main__':
                           )
 
         elif name == "unet-vae":
-            model = UNetVAE(input_shape=(144, 160, 2),
+            model = UNetVAE(input_shape=target_size,
                             inf_vector_shape=(2, 16),
                             mode=mode,
                             number_filters_0=32,
@@ -219,7 +219,7 @@ if __name__ == '__main__':
                             )
 
         elif name == "unet-vae-emb":
-            model = UNetVAEEmb(input_shape=(144, 160, 2),
+            model = UNetVAEEmb(input_shape=target_size,
                             inf_vector_shape=(2, 16),
                             mode=mode,
                             number_filters_0=32,
