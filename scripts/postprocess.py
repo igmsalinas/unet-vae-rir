@@ -38,10 +38,6 @@ class PostProcess:
 
     def __init__(self, folder, algorithm="ph", n_iters=32, momentum=0, normalize_vector=False):
 
-        self.stft = None
-        self.phase = None
-        self.waveform = None
-
         self.normalizer = Normalizer()
         self.padder = TensorPadder((144, 160))
 
@@ -74,12 +70,13 @@ class PostProcess:
         stft, phase = self.get_stft_phase(feature)
         stft_d, phase_d = self.de_shape(stft, phase, des_shape)
         denorm_f, denorm_p = self.denormalize(stft_d, phase_d)
-        self.istft(denorm_f, denorm_p, n_fft, win_length, hop_length)
-        self.align_wav(vector, min_max_vector, sr)
-        # self.save_wav(sr, vector)
+        waveform = self.istft(denorm_f, denorm_p, n_fft, win_length, hop_length)
+        vector = self.denorm_embedding(vector, min_max_vector)
+        waveform = self.align_wav(waveform, vector, sr)
+        # self.save_wav(waveform, sr, vector)
         # self.save_stft(feature)
 
-        return self.waveform
+        return waveform
 
     @staticmethod
     def get_stft_phase(feature):
@@ -141,9 +138,9 @@ class PostProcess:
                                           n_fft=n_fft, win_length=win_length, hop_length=hop_length,
                                           momentum=self.momentum)
 
-        self.waveform = waveform
+        return waveform
 
-    def save_wav(self, sr, vector):
+    def save_wav(self, waveform, sr, vector):
         """
         Writes wav given a sample rate and the vector corresponding to the waveform.
 
@@ -157,7 +154,7 @@ class PostProcess:
         self.wav_name = "RIR" + vector_name
         self._create_directory_if_none(self.wav_path + "/rir/")
         file_path = os.path.join(self.wav_path + "/rir/", self.wav_name + ".wav")
-        write(file_path, sr, self.waveform)
+        write(file_path, sr, waveform)
 
     def save_stft(self, feature):
         """
@@ -185,53 +182,35 @@ class PostProcess:
         """
         Denormalizes the embedding.
         """
-        denorm_emb = self.normalizer.denormalize_embedding(emb, min_max_vector)
-        return denorm_emb
+        if self.normalize_vector:
+            emb = self.normalizer.denormalize_embedding(emb, min_max_vector)
+        return emb
 
-    @staticmethod
-    def find_direct_sound_index(waveform):
-        """
-        Find the direct sound index in the waveform. Its either the first maximum of the first minimum.
-        waveform: The input waveform array.
-        """
-        # Find the first maximum and minimum
-        max_index = np.argmax(waveform)
-        min_index = np.argmin(waveform)
-        # Return the index of the first maximum or minimum and if it is the maximum or the minimum
-        if max_index < min_index:
-            return True, max_index
-        else:
-            return False, min_index
-
-
-    def align_wav(self, emb, min_max_vector, sr=48000):
+    def align_wav(self, waveform, emb, sr=48000):
         """
         1. Obtain direct sound from embedding
         2. Align the waveform with the direct sound
         3. Set to 0 the samples previous to the direct sound
         """
 
-        # Your existing code to normalize and calculate distances
-        if self.normalize_vector:
-            emb = self.denorm_embedding(emb, min_max_vector)
         listener_pos = emb[9:12]
         speaker_pos = emb[12:15]
         # Obtain the distance between the listener and the speaker
         distance = np.sqrt(np.sum((listener_pos - speaker_pos) ** 2))
         # Calculate the number of samples to set to 0 given the distance and the speed of sound at 20 degrees and the sampling rate
         num_samples = int((distance / 34300) * sr)
-        original_length = len(self.waveform)
+        original_length = len(waveform)
         # Find the direct sound index
-        min_max, direct_sound_index = self.find_direct_sound_index(self.waveform)
+        direct_sound_index = np.argmax(waveform)
 
         # Align the waveform with the direct sound
-        self.waveform = np.concatenate((np.zeros(num_samples), self.waveform[direct_sound_index:]), dtype=np.float32)
-        if len(self.waveform) > original_length:
-            self.waveform = self.waveform[:original_length]
-        elif len(self.waveform) < original_length:
-            self.waveform = np.concatenate((self.waveform, np.zeros(original_length - len(self.waveform))), dtype=np.float32)
+        waveform = np.concatenate((np.zeros(num_samples), waveform[direct_sound_index:]), dtype=np.float32)
+        if len(waveform) > original_length:
+            waveform = waveform[:original_length]
+        elif len(waveform) < original_length:
+            waveform = np.concatenate((waveform, np.zeros(original_length - len(waveform))), dtype=np.float32)
         # Return the aligned waveform
-        return self.waveform
+        return waveform
 
 
 
