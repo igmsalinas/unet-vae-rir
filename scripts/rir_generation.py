@@ -15,11 +15,12 @@ from dl_models.unet_vae_emb import UNetVAEEmb
 import numpy as np
 from numpy.fft import fft, ifft
 from postprocess import PostProcess
-from preprocess import Loader
+from preprocess import Normalizer, FeatureExtractor, Loader, TensorPadder
 import time
 from tensorflow.keras import backend as K
 import tensorflow as tf
 from tensorflow.keras.utils import Progbar
+from scipy.io.wavfile import write
 
 """
 Ignacio Martín 2024
@@ -32,6 +33,17 @@ Authors:
 University Carlos III de Madrid
 """
 
+normalizer = Normalizer()
+extractor = FeatureExtractor(n_fft=256, win_length=128, hop_length=64)
+padder = TensorPadder(desired_shape=(144, 160, 2))
+
+def preprocess_wav(wav):
+    amp, phase = extractor.extract(wav)
+    norm_amp, norm_phase = normalizer.normalize(amp, phase)
+    padded_amp, padded_phase = padder.pad_amp_phase(norm_amp, norm_phase)
+    padded_amp = padded_amp.astype(np.dtype('float32'))
+    padded_phase = padded_phase.astype(np.dtype('float32'))
+    return padded_amp, padded_phase
 
 def amplitude_loss(y_true, y_pred):
     return tf.keras.losses.mse(y_true, y_pred)
@@ -54,6 +66,151 @@ def sdr(pred, true):
     res_power = np.sum(est_res ** 2)
     return 10 * np.log10(true_power) - 10 * np.log10(res_power)
 
+def calculate_edc(rir_waveform, sample_rate=None, smoothing_samples=0):
+    """
+    Calculates the Energy Decay Curve (EDC) using Schroeder's backward integration.
+
+    Args:
+        rir_waveform (np.ndarray): A 1D NumPy array containing the room impulse response waveform.
+        sample_rate (int, optional): The sample rate of the RIR in Hz.
+                                     Required only if plotting against time is desired.
+                                     Defaults to None.
+        smoothing_samples (int, optional): Number of samples to use for moving average
+                                           smoothing of the squared impulse response
+                                           before integration. Helps reduce noise influence.
+                                           Defaults to 0 (no smoothing).
+
+    Returns:
+        tuple:
+            - np.ndarray: The Energy Decay Curve in decibels (dB).
+                          Returns an empty array if input is invalid.
+            - np.ndarray or None: Time axis in seconds corresponding to the EDC values.
+                                  Returns None if sample_rate is not provided.
+    """
+    if not isinstance(rir_waveform, np.ndarray) or rir_waveform.ndim != 1 or rir_waveform.size == 0:
+        print("Error: Input must be a non-empty 1D NumPy array.")
+        return np.array([]), None
+
+    # Ensure floating point for calculations
+    rir_waveform = rir_waveform.astype(np.float64)
+
+    # 1. Square the impulse response to get energy
+    energy = rir_waveform**2
+
+    # 2. Optional: Apply smoothing to the energy envelope
+    if smoothing_samples > 0:
+        if smoothing_samples >= len(energy):
+            print(f"Warning: Smoothing window ({smoothing_samples}) is larger than or equal to data length ({len(energy)}). Using mean.")
+            # Use mean of the whole signal if window is too large
+            energy[:] = np.mean(energy)
+        else:
+            # Use convolution for moving average smoothing
+            smoothing_window = np.ones(smoothing_samples) / smoothing_samples
+            # Use 'valid' mode initially then pad to match original length if needed,
+            # or use 'same' which handles boundaries automatically. 'same' is simpler here.
+            energy = np.convolve(energy, smoothing_window, mode='same')
+
+    # Add a small epsilon to prevent log10(0) issues later,
+    # especially relevant after potential smoothing or if noise floor is near zero
+    epsilon = np.finfo(energy.dtype).eps
+    energy += epsilon # Add epsilon to the energy itself
+
+    # 3. Schroeder backward integration (cumulative sum from the end)
+    # Sum energy from time 't' to the end of the response
+    cumulative_energy = np.cumsum(energy[::-1])[::-1]
+
+    # Handle potential zero total energy (completely silent RIR)
+    total_energy = cumulative_energy[0]
+    if total_energy <= 0:
+         print("Warning: Total energy is zero or negative. Cannot normalize EDC.")
+         # Return a flat 0 dB curve or handle as appropriate
+         return np.zeros_like(cumulative_energy), None # Or raise an error
+
+    # 4. Normalize by the total energy and convert to dB
+    # Adding epsilon inside log10 defensively, although total_energy check helps
+    # Ensure argument to log10 is strictly positive
+    normalized_energy = np.maximum(cumulative_energy / total_energy, epsilon)
+    edc_db = 10.0 * np.log10(normalized_energy)
+
+    # Ensure the EDC starts at 0 dB (or very close due to epsilon/numerical precision)
+    # Check if edc_db is not empty before accessing its first element
+    if edc_db.size > 0:
+        edc_db = edc_db - edc_db[0] # Force start at 0 dB
+
+    # 5. Create time axis if sample_rate is provided
+    time_ax = np.linspace(0, len(rir_waveform) / sample_rate, num=len(rir_waveform))
+
+    return edc_db, time_ax
+
+def plot_edc_comparison(rir_real, rir_simulated, sample_rate,
+                        smoothing_samples_real=0, smoothing_samples_sim=0,
+                        title="EDC Comparison: Real vs. Simulated",
+                        path=None
+                        ):
+    """
+    Calculates and plots the EDCs for a real and a simulated RIR on the same graph.
+
+    Args:
+        rir_real (np.ndarray): 1D NumPy array for the real measured RIR.
+        rir_simulated (np.ndarray): 1D NumPy array for the simulated RIR.
+        sample_rate (int): The sample rate (Hz), assumed same for both RIRs.
+        smoothing_samples_real (int, optional): Smoothing samples for real RIR EDC. Defaults to 0.
+        smoothing_samples_sim (int, optional): Smoothing samples for simulated RIR EDC. Defaults to 0.
+        title (str, optional): Title for the plot. Defaults to "EDC Comparison: Real vs. Simulated".
+    """
+    if sample_rate is None or sample_rate <= 0:
+        print("Error: A valid sample_rate > 0 must be provided for plotting.")
+        return
+
+    # Calculate EDC for the real RIR
+    edc_real_db, time_real = calculate_edc(rir_real, sample_rate, smoothing_samples_real)
+    if edc_real_db.size == 0:
+        print("Could not calculate EDC for the real RIR.")
+        return # Stop if calculation failed
+
+    # Calculate EDC for the simulated RIR
+    edc_sim_db, time_sim = calculate_edc(rir_simulated, sample_rate, smoothing_samples_sim)
+    if edc_sim_db.size == 0:
+        print("Could not calculate EDC for the simulated RIR.")
+        return # Stop if calculation failed
+
+    # --- Plotting ---
+    fig = plt.figure(figsize=(10, 6))
+
+    # Determine the maximum length for the x-axis based on available time data
+    max_time = 0
+    if time_real is not None:
+        max_time = max(max_time, time_real[-1])
+    if time_sim is not None:
+        max_time = max(max_time, time_sim[-1])
+
+    # Plot Real EDC
+    if time_real is not None:
+        plt.plot(time_real, edc_real_db, label=f'Real RIR', color='blue', alpha=0.8)
+    else:
+        # Fallback to plotting against sample index if time is not available (shouldn't happen with check above)
+        plt.plot(edc_real_db, label=f'Real RIR', color='blue', alpha=0.8)
+
+
+    # Plot Simulated EDC
+    if time_sim is not None:
+         plt.plot(time_sim, edc_sim_db, label=f'Simulated RIR', color='red', linestyle='--', alpha=0.8)
+    else:
+        # Fallback to plotting against sample index
+        plt.plot(edc_sim_db, label=f'Simulated RIR', color='red', linestyle='--', alpha=0.8)
+
+    # Configure the plot
+    plt.title(title)
+    plt.xlabel('Time (s)' if max_time > 0 else 'Samples')
+    plt.ylabel('Energy Decay (dB)')
+    plt.ylim(-80, 5) # Adjust Y limits as needed, typical for RIR EDCs
+    if max_time > 0:
+        plt.xlim(0, max_time) # Set x-limit to the longest duration
+    plt.grid(True, which='both', linestyle='-', linewidth=0.5)
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(path)
+    plt.close(fig)
 
 def calculate_similarity(wav_true, wav_pred):
     """
@@ -96,7 +253,7 @@ def calculate_similarity(wav_true, wav_pred):
 if __name__ == '__main__':
 
     # ['ae', 'vae', 'resae', 'unet', 'unet-vae-emb', 'unet-n', 'unet-vae']
-    model_names = ['unet-n', 'unet-vae']
+    model_names = ['unet', 'unet-vae-emb']
     latent_space_dims = [64, 128, 256]
     losses = ["mae", "mse"]
     diffs = [True, False]
@@ -108,7 +265,7 @@ if __name__ == '__main__':
     arrays = ["PlanarMicrophoneArray"]
     zones = None
 
-    algorithms = ['ph', 'gl_ph', 'gl_mag']  # ['gl_ph', 'gl_mag', 'ph']
+    algorithms = ['ph', 'gl_ph']  # ['gl_ph', 'gl_mag', 'ph']
     n_iters = 32
     momentum = 0.99
 
@@ -123,7 +280,7 @@ if __name__ == '__main__':
 
     dataset = Dataset(dataset_dir, 'room_impulse', normalization=True, debugging=debug, extract=False,
                       room_characteristics=True, room=rooms, array=arrays, zone=zones,
-                      normalize_vector=True)
+                      normalize_vector=False)
     test_generator = DataGenerator(dataset, batch_size=batch_size, partition='test', shuffle=False,
                                    characteristics=True)
 
@@ -152,7 +309,7 @@ if __name__ == '__main__':
                             normalize_vector = False
 
                         models_folder = '../results/bottleneck/'
-                        saving_path = '../generated_rir/local_gen/' + model_name + modifier
+                        saving_path = '../generated_rir/local_gen_imgs_r1/' + model_name + modifier
 
                         print(f"Loading {models_folder + model_name + modifier}")
 
@@ -262,6 +419,7 @@ if __name__ == '__main__':
                             postprocessor = PostProcess(folder=saving_path + "/" + model_name + modifier, algorithm=algorithm,
                                                         momentum=momentum, n_iters=n_iters, normalize_vector=normalize_vector)
 
+
                             time.sleep(1)
                             print(f'Generating wavs and obtaining loss | {algorithm}')
                             numUpdates = test_generator.__len__()
@@ -320,16 +478,26 @@ if __name__ == '__main__':
                                     stft_true = spec_out[j, :, :, 0]
                                     phase_true = spec_out[j, :, :, 1]
 
+
                                     stft_pred = spec_generated[j, :, :, 0]
+
+
 
                                     if diff_gen:
                                         phase_pred = diff_phase_generated
                                     else:
                                         phase_pred = spec_generated[j, :, :, 1]
 
+                                    if algorithm == 'gl_ph':
+                                        stft_pred, phase_pred = preprocess_wav(wav_pred)
+
+                                        spec_generated_iter = np.stack((stft_pred, phase_pred), axis=-1)
+                                    else:
+                                        spec_generated_iter = spec_generated[j]
+
                                     loss_stft = np.mean(amplitude_loss(stft_true, stft_pred))
                                     loss_phase = np.mean(phase_loss(phase_true, phase_pred))
-                                    mean_loss = np.mean(amplitude_loss(spec_out[j], spec_generated[j]))
+                                    mean_loss = np.mean(amplitude_loss(spec_out[j], spec_generated_iter))
 
                                     total_loss.append(mean_loss)
                                     amp_loss.append(loss_stft)
@@ -457,8 +625,8 @@ if __name__ == '__main__':
                                     time_loss.append(end_loss - start_loss)
 
                                     if plot_countdown == 1280:
-                                        pass
                                         create_directory_if_none(f'{saving_path}/{model_name + modifier}_{algorithm}/png/')
+                                        create_directory_if_none(f'{saving_path}/{model_name + modifier}_{algorithm}/wav/')
                                         plot_feature_vs_wav(stft_pred, wav_pred, model_name + modifier, characteristic_out,
                                                             f'{saving_path}/{model_name + modifier}_{algorithm}/png/spec_vs_wav_{plot_count}.png')
                                         plot_feature_vs_feature_wav(wav_true, stft_true, stft_pred, model_name + modifier,
@@ -468,6 +636,10 @@ if __name__ == '__main__':
                                                             f'{saving_path}/{model_name + modifier}_{algorithm}/png/phase_vs_phase_{plot_count}.png')
                                         plot_wav_vs_wav(wav_true, wav_pred, model_name + modifier, characteristic_out,
                                                         f'{saving_path}/{model_name + modifier}_{algorithm}/png/wav_vs_wav_{plot_count}.png')
+                                        plot_edc_comparison(wav_true, wav_pred, 48000, path=f'{saving_path}/{model_name + modifier}_{algorithm}/png/edc_{plot_count}.png')
+                                        # Save the RIRs
+                                        write(f'{saving_path}/{model_name + modifier}_{algorithm}/wav/real_{plot_count}.wav', 48000, wav_true)
+                                        write(f'{saving_path}/{model_name + modifier}_{algorithm}/wav/simulated_{plot_count}.wav', 48000, wav_pred)
                                         plot_count += 1
                                         plot_countdown = 0
                                     else:
