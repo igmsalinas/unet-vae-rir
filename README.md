@@ -518,7 +518,7 @@ tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir='./logs')
 
 ## Citation
 
-If you use this code in your research, please cite (pending for approval):
+If you use this code in your research, please cite:
 
 ```bibtex
 @article{martin2025enhanced,
