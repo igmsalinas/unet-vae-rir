@@ -521,11 +521,15 @@ tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir='./logs')
 If you use this code in your research, please cite (pending for approval):
 
 ```bibtex
-@bachelorthesis{martin2025rir,
-  title={Enhanced U-Net Architectures for Accurate Room Impulse Response Generation via Differential-Phase Learning},
-  author={Martin-Salinas, Ignacio and Belloch, Jose A and Piñero, Gema and Amor-Martin, Adrian},
-  school={University Carlos III de Madrid},
-  year={2025}
+@article{martin2025enhanced,
+  title={Enhanced U-Net architectures for accurate room impulse response generation via differential-phase learning},
+  author={Martin-Salinas, Ignacio and Pi{\~n}ero, Gema and Belloch, Jose A and Amor-Martin, Adrian},
+  journal={EURASIP Journal on Audio, Speech, and Music Processing},
+  volume={2025},
+  number={1},
+  pages={39},
+  year={2025},
+  publisher={Springer}
 }
 ```
 
